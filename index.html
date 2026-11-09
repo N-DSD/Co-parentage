@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dépose &amp; Récupération</title>
+  <title>Co-parentage</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="app-header">
-    <h1>Dépose &amp; Récupération</h1>
+    <h1>Co-parentage</h1>
     <div class="names">
       <input id="name-a" type="text" maxlength="20" aria-label="Nom du premier parent" />
       <span class="vs">&amp;</span>
@@ -17,9 +17,9 @@
   </header>
 
   <nav class="week-nav">
-    <button id="prev-week" type="button">← Semaine précédente</button>
-    <button id="current-week" type="button">Cette semaine</button>
-    <button id="next-week" type="button">Semaine suivante →</button>
+    <button id="prev-week" type="button">← Précédent</button>
+    <button id="current-week" type="button">Semaines à venir</button>
+    <button id="next-week" type="button">Suivant →</button>
   </nav>
 
   <p id="week-label" class="week-label"></p>
@@ -31,10 +31,7 @@
     <div id="activities-list" class="activities-list"></div>
     <form id="activity-form" class="activity-form">
       <select id="activity-day" aria-label="Jour"></select>
-      <select id="activity-kid" aria-label="Enfant">
-        <option value="Z">Z</option>
-        <option value="W">W</option>
-      </select>
+      <select id="activity-kid" aria-label="Enfant"></select>
       <input id="activity-name" type="text" maxlength="30" placeholder="Activité" required />
       <input id="activity-start" type="time" required aria-label="Début" />
       <input id="activity-end" type="time" required aria-label="Fin" />
@@ -42,7 +39,7 @@
     </form>
   </section>
 
-  <main id="days" class="days"></main>
+  <main id="weeks"></main>
 
   <footer class="app-footer">
     <button id="export-btn" type="button">Exporter (JSON)</button>
