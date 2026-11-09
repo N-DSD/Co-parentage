@@ -36,22 +36,75 @@ function nextMonday() {
 }
 
 function load() {
+  const fromHash = parseHashState();
+  if (fromHash) return fromHash;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULTS);
-    const parsed = JSON.parse(raw);
-    return {
-      names: { ...DEFAULTS.names, ...(parsed.names || {}) },
-      weeks: parsed.weeks || {},
-      activities: parsed.activities || DEFAULT_ACTIVITIES,
-    };
+    return normalizeState(JSON.parse(raw));
   } catch {
     return structuredClone(DEFAULTS);
   }
 }
 
+function normalizeState(parsed) {
+  return {
+    names: { ...DEFAULTS.names, ...(parsed.names || {}) },
+    weeks: parsed.weeks || {},
+    activities: parsed.activities || DEFAULT_ACTIVITIES,
+  };
+}
+
+function b64urlEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function b64urlDecode(s) {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function parseHashState() {
+  const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+  try {
+    return normalizeState(JSON.parse(b64urlDecode(m[1])));
+  } catch {
+    return null;
+  }
+}
+
+function shareState() {
+  const cutoff = new Date(baseMonday);
+  cutoff.setDate(cutoff.getDate() - 14);
+  const cutoffKey = cutoff.toISOString().slice(0, 10);
+  const weeks = {};
+  for (const key of Object.keys(state.weeks)) {
+    if (key >= cutoffKey) weeks[key] = state.weeks[key];
+  }
+  return { names: state.names, activities: state.activities, weeks };
+}
+
+function shareUrl() {
+  return `${location.origin}${location.pathname}#d=${b64urlEncode(JSON.stringify(shareState()))}`;
+}
+
+let hashTimer = null;
+
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    history.replaceState(null, "", `#d=${b64urlEncode(JSON.stringify(shareState()))}`);
+  }, 300);
 }
 
 function getMonday(date) {
@@ -359,6 +412,16 @@ document.getElementById("activity-form").addEventListener("submit", (e) => {
   save();
   e.target.reset();
   render();
+});
+
+document.getElementById("share-btn").addEventListener("click", async () => {
+  const url = shareUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+    alert("Lien copié ! Envoie-le par SMS/WhatsApp : en l'ouvrant, le planning se charge automatiquement.");
+  } catch {
+    prompt("Copie ce lien et envoie-le :", url);
+  }
 });
 
 document.getElementById("export-btn").addEventListener("click", () => {
