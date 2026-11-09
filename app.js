@@ -1,11 +1,9 @@
-const STORAGE_KEY = "depose-recup-v1";
+const STORAGE_KEY = "depose-recup-v2";
 
-const SLOTS = [
-  { id: "matin", label: "🌅 Dépose le matin" },
-  { id: "soir", label: "🌇 Récupération le soir" },
-];
+const KIDS = ["I", "W", "Z"];
 
-const ASSIGNEES = ["a", "b", "both", "none"];
+const ASSIGNEES_MATIN = ["a", "b", "both", "none"];
+const ASSIGNEES_SOIR = ["a", "b", "both", "seul", "none"];
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
@@ -29,7 +27,13 @@ const DEFAULTS = {
 
 const state = load();
 
-let currentMonday = getMonday(new Date());
+let baseMonday = nextMonday();
+
+function nextMonday() {
+  const monday = getMonday(new Date());
+  monday.setDate(monday.getDate() + 7);
+  return monday;
+}
 
 function load() {
   try {
@@ -72,7 +76,10 @@ function getWeek(monday) {
 function getDay(monday, dateStr) {
   const week = getWeek(monday);
   if (!week.days[dateStr]) {
-    week.days[dateStr] = { slots: {}, note: "" };
+    week.days[dateStr] = { kids: {}, note: "" };
+    for (const kid of KIDS) {
+      week.days[dateStr].kids[kid] = { matin: "none", soir: "none" };
+    }
   }
   return week.days[dateStr];
 }
@@ -85,14 +92,18 @@ function formatDate(date) {
   });
 }
 
+function shortDate(date) {
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
 function fmtTime(t) {
   const [h, m] = t.split(":");
   return `${h}h${m}`;
 }
 
-function activitiesForDay(dayIndex) {
+function activitiesFor(dayIndex, kid) {
   return state.activities
-    .filter((a) => a.day === dayIndex)
+    .filter((a) => a.day === dayIndex && a.kid === kid)
     .sort((a, b) => a.start.localeCompare(b.start));
 }
 
@@ -103,6 +114,7 @@ function assigneeLabel(value) {
     case "a": return a;
     case "b": return b;
     case "both": return `${a} + ${b}`;
+    case "seul": return "Rentre seul";
     default: return "Personne";
   }
 }
@@ -111,57 +123,70 @@ function renderActivities() {
   const container = document.getElementById("activities-list");
   container.innerHTML = "";
   for (let d = 0; d < 7; d++) {
-    const acts = activitiesForDay(d);
-    if (acts.length === 0) continue;
-    const group = document.createElement("div");
-    group.className = "activity-day";
-    const title = document.createElement("span");
-    title.className = "activity-day-name";
-    title.textContent = DAYS[d];
-    group.appendChild(title);
-    for (const act of acts) {
-      const row = document.createElement("span");
-      row.className = "activity-row";
-      row.innerHTML = `<span class="activity-kid">${act.kid}</span> ${act.name} <span class="activity-time">${fmtTime(act.start)} – ${fmtTime(act.end)}</span>`;
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "activity-delete";
-      del.textContent = "✕";
-      del.title = "Supprimer cette activité";
-      del.addEventListener("click", () => {
-        state.activities = state.activities.filter((a) => a.id !== act.id);
-        save();
-        render();
-      });
-      row.appendChild(del);
-      group.appendChild(row);
+    for (const kid of KIDS) {
+      const acts = activitiesFor(d, kid);
+      if (acts.length === 0) continue;
+      const group = document.createElement("div");
+      group.className = "activity-day";
+      const title = document.createElement("span");
+      title.className = "activity-day-name";
+      title.textContent = `${DAYS[d]} · ${kid}`;
+      group.appendChild(title);
+      for (const act of acts) {
+        const row = document.createElement("span");
+        row.className = "activity-row";
+        row.innerHTML = `<span class="activity-kid">${act.kid}</span> ${act.name} <span class="activity-time">${fmtTime(act.start)} – ${fmtTime(act.end)}</span>`;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "activity-delete";
+        del.textContent = "✕";
+        del.title = "Supprimer cette activité";
+        del.addEventListener("click", () => {
+          state.activities = state.activities.filter((a) => a.id !== act.id);
+          save();
+          render();
+        });
+        row.appendChild(del);
+        group.appendChild(row);
+      }
+      container.appendChild(group);
     }
-    container.appendChild(group);
   }
 }
 
-function render() {
-  document.getElementById("name-a").value = state.names.a;
-  document.getElementById("name-b").value = state.names.b;
+function renderSlotChip(kid, field, value, assignables, day) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = `slot-chip ${field} ${value}`;
+  const label = field === "matin" ? "🌅 Matin" : "🌇 Soir";
+  chip.innerHTML = `<span class="label">${label}</span><span class="assignee">${assigneeLabel(value)}</span>`;
+  chip.addEventListener("click", () => {
+    const current = day.kids[kid][field];
+    const next = assignables[(assignables.indexOf(current) + 1) % assignables.length];
+    day.kids[kid][field] = next;
+    save();
+    render();
+  });
+  return chip;
+}
 
-  const sunday = new Date(currentMonday);
+function renderWeek(monday, container) {
+  const sunday = new Date(monday);
   sunday.setDate(sunday.getDate() + 6);
-  document.getElementById("week-label").textContent =
-    `Semaine du ${currentMonday.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} au ${sunday.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
 
-  renderActivities();
-
-  const container = document.getElementById("days");
-  container.innerHTML = "";
+  const weekSection = document.createElement("section");
+  weekSection.className = "week-section";
+  const h2 = document.createElement("h2");
+  h2.textContent = `Semaine du ${shortDate(monday)} au ${shortDate(sunday)}`;
+  weekSection.appendChild(h2);
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const counts = { a: 0, b: 0, both: 0, none: 0 };
 
   for (let i = 0; i < 7; i++) {
-    const date = new Date(currentMonday);
+    const date = new Date(monday);
     date.setDate(date.getDate() + i);
     const dateStr = date.toISOString().slice(0, 10);
-    const day = getDay(currentMonday, dateStr);
+    const day = getDay(monday, dateStr);
     const weekday = (date.getDay() + 6) % 7;
 
     const card = document.createElement("article");
@@ -172,38 +197,39 @@ function render() {
     title.innerHTML = `<span>${formatDate(date)}</span><span class="date">${date.toLocaleDateString("fr-FR", { year: "numeric" })}</span>`;
     card.appendChild(title);
 
-    for (const slot of SLOTS) {
-      const value = day.slots[slot.id] || "none";
-      counts[value]++;
-      const el = document.createElement("div");
-      el.className = `slot ${value}`;
-      el.innerHTML = `<span class="label">${slot.label}</span><span class="assignee">${assigneeLabel(value)}</span>`;
-      el.addEventListener("click", () => {
-        const current = day.slots[slot.id] || "none";
-        const next = ASSIGNEES[(ASSIGNEES.indexOf(current) + 1) % ASSIGNEES.length];
-        day.slots[slot.id] = next;
-        save();
-        render();
-      });
-      card.appendChild(el);
-    }
+    for (const kid of KIDS) {
+      const row = document.createElement("div");
+      row.className = "kid-row";
 
-    const acts = activitiesForDay(weekday);
-    if (acts.length > 0) {
-      const list = document.createElement("div");
-      list.className = "day-activities";
-      for (const act of acts) {
-        const row = document.createElement("div");
-        row.className = "day-activity";
-        row.innerHTML = `<span class="activity-kid">${act.kid}</span> ${act.name} <span class="activity-time">${fmtTime(act.start)} – ${fmtTime(act.end)}</span>`;
-        list.appendChild(row);
+      const kidName = document.createElement("span");
+      kidName.className = "kid-name";
+      kidName.textContent = kid;
+      row.appendChild(kidName);
+
+      row.appendChild(renderSlotChip(kid, "matin", day.kids[kid].matin, ASSIGNEES_MATIN, day));
+      row.appendChild(renderSlotChip(kid, "soir", day.kids[kid].soir, ASSIGNEES_SOIR, day));
+
+      const acts = activitiesFor(weekday, kid);
+      if (acts.length > 0) {
+        const actsEl = document.createElement("span");
+        actsEl.className = "kid-activities";
+        actsEl.textContent = acts
+          .map((a) => `${a.name} ${fmtTime(a.start)}–${fmtTime(a.end)}`)
+          .join(", ");
+        row.appendChild(actsEl);
+      } else if (day.kids[kid].soir !== "seul" && day.kids[kid].soir !== "none") {
+        const hint = document.createElement("span");
+        hint.className = "kid-activities muted";
+        hint.textContent = "récup. école/crèche";
+        row.appendChild(hint);
       }
-      card.appendChild(list);
+
+      card.appendChild(row);
     }
 
     const note = document.createElement("textarea");
     note.className = "day-note";
-    note.placeholder = "Note pour la journée (horaires, garderie, etc.)";
+    note.placeholder = "Note pour la journée";
     note.value = day.note;
     note.rows = 1;
     note.addEventListener("input", () => {
@@ -212,7 +238,46 @@ function render() {
     });
     card.appendChild(note);
 
-    container.appendChild(card);
+    weekSection.appendChild(card);
+  }
+
+  container.appendChild(weekSection);
+}
+
+function render() {
+  document.getElementById("name-a").value = state.names.a;
+  document.getElementById("name-b").value = state.names.b;
+
+  const end = new Date(baseMonday);
+  end.setDate(end.getDate() + 13);
+  document.getElementById("week-label").textContent =
+    `Semaines du ${shortDate(baseMonday)} au ${shortDate(end)}`;
+
+  renderActivities();
+
+  const container = document.getElementById("weeks");
+  container.innerHTML = "";
+
+  const nextWeekMonday = new Date(baseMonday);
+  nextWeekMonday.setDate(nextWeekMonday.getDate() + 7);
+  renderWeek(baseMonday, container);
+  renderWeek(nextWeekMonday, container);
+
+  const counts = { a: { matin: 0, soir: 0 }, b: { matin: 0, soir: 0 }, both: { matin: 0, soir: 0 } };
+  for (let w = 0; w < 2; w++) {
+    const monday = new Date(baseMonday);
+    monday.setDate(monday.getDate() + 7 * w);
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(date.getDate() + i);
+      const day = getDay(monday, date.toISOString().slice(0, 10));
+      for (const kid of KIDS) {
+        for (const field of ["matin", "soir"]) {
+          const v = day.kids[kid][field];
+          if (counts[v]) counts[v][field]++;
+        }
+      }
+    }
   }
 
   const summary = document.getElementById("week-summary");
@@ -225,7 +290,7 @@ function render() {
   for (const b of badges) {
     const el = document.createElement("span");
     el.className = `badge ${b.cls}`;
-    el.textContent = `${b.label} : ${counts[b.key]} / 14`;
+    el.textContent = `${b.label} : ${counts[b.key].matin} matins · ${counts[b.key].soir} soirs`;
     summary.appendChild(el);
   }
 }
@@ -243,17 +308,17 @@ document.getElementById("name-b").addEventListener("input", (e) => {
 });
 
 document.getElementById("prev-week").addEventListener("click", () => {
-  currentMonday.setDate(currentMonday.getDate() - 7);
+  baseMonday.setDate(baseMonday.getDate() - 7);
   render();
 });
 
 document.getElementById("next-week").addEventListener("click", () => {
-  currentMonday.setDate(currentMonday.getDate() + 7);
+  baseMonday.setDate(baseMonday.getDate() + 7);
   render();
 });
 
 document.getElementById("current-week").addEventListener("click", () => {
-  currentMonday = getMonday(new Date());
+  baseMonday = nextMonday();
   render();
 });
 
@@ -264,6 +329,15 @@ DAYS.forEach((d, i) => {
   opt.textContent = d;
   daySelect.appendChild(opt);
 });
+
+const kidSelect = document.getElementById("activity-kid");
+kidSelect.innerHTML = "";
+for (const kid of KIDS) {
+  const opt = document.createElement("option");
+  opt.value = kid;
+  opt.textContent = kid;
+  kidSelect.appendChild(opt);
+}
 
 document.getElementById("activity-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -277,7 +351,7 @@ document.getElementById("activity-form").addEventListener("submit", (e) => {
   state.activities.push({
     id: `act-${Date.now()}`,
     day: Number(daySelect.value),
-    kid: document.getElementById("activity-kid").value,
+    kid: kidSelect.value,
     name,
     start,
     end,
@@ -292,7 +366,7 @@ document.getElementById("export-btn").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "depose-recup-planning.json";
+  link.download = "co-parentage-planning.json";
   link.click();
   URL.revokeObjectURL(url);
 });
